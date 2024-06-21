@@ -1,165 +1,232 @@
-# ************************************
-# Python Snake
-# ************************************
-from tkinter import *
+import os
 import random
+import math
+import pygame
+from os import listdir
+from os.path import isfile, join
+pygame.init()
 
-GAME_WIDTH = 700
-GAME_HEIGHT = 700
-SPEED = 50
-SPACE_SIZE = 50
-BODY_PARTS = 3
-SNAKE_COLOR = "#00FF00"
-FOOD_COLOR = "#FF0000"
-BACKGROUND_COLOR = "#000000"
+pygame.display.set_caption("Adventure Game")
 
+BG_COLOR = (255, 255, 255)
+WIDTH, HEIGHT = 1000, 800
+FPS = 60
+PLAYER_VEL = 5
 
-class Snake:
+window = pygame.display.set_mode((WIDTH, HEIGHT))
 
-    def __init__(self):
-        self.body_size = BODY_PARTS
-        self.coordinates = []
-        self.squares = []
+def flip(sprites):
+    return [pygame.transform.flip(sprite, True, False) for sprite in sprites]
 
-        for i in range(0, BODY_PARTS):
-            self.coordinates.append([0, 0])
+def load_sprite_sheets(dir1, dir2, width, height, direction = False):
+    path = join("Asset", dir1 , dir2)
+    images = [f for f in listdir(path) if isfile(join(path, f))]
+    
+    all_sprites = {}
+    
+    for image in images:
+        sprite_sheet = pygame.image.load(join(path, image)).convert_alpha()
 
-        for x, y in self.coordinates:
-            square = canvas.create_rectangle(x, y, x + SPACE_SIZE, y + SPACE_SIZE, fill=SNAKE_COLOR, tag="snake")
-            self.squares.append(square)
+        sprites = []
+        
+        for i in range(sprite_sheet.get_width() // width):
+            surface = pygame.Surface((width, height), pygame.SRCALPHA, 32)
+            rect = pygame.Rect(i * width, 0, width, height)
+            surface.blit(sprite_sheet, (0, 0), rect)
+            sprites.append(pygame.transform.scale2x(surface))
+            
+        if direction:
+            all_sprites[image.replace(".png", "") + "_right"] = sprites
+            all_sprites[image.replace(".png", "") + "_left"] = flip(sprites)
+        else:
+            all_sprites[image.replace(".png", "")] = sprites
+    
+    return all_sprites
 
+def get_block(size):
+    path = join("Asset", "Terrain", "Terrain.png")
+    image = pygame.image.load(path).convert_alpha()
+    surface = pygame.Surface((size, size), pygame.SRCALPHA, 32)
+    rect = pygame.Rect(96, 64, size, size)
+    surface.blit(image, (0, 0), rect)
+    return pygame.transform.scale(surface, (size, size))     
+                
+class Player(pygame.sprite.Sprite):
+    COLOR = (255, 0, 0)
+    GRAVITY = 1
+    SPRITES = load_sprite_sheets("MainCharacters", "PinkMan", 32, 32, True)
+    ANIMATION_DELAY = 3
+    
+    def __init__(self, x, y, width, height):
+        super().__init__()
+        self.rect = pygame.Rect(x, y, width, height)
+        self.x_vel = 0
+        self.y_vel = 0
+        self.mask = None
+        self.direction = "right"
+        self.animation_count = 0
+        self.fall_vel = 0
+        
+    def move(self, dx, dy):
+        self.rect.x += dx
+        self.rect.y += dy
+    
+    def move_left(self, vel):
+        self.x_vel = -vel
+        if self.direction != "left":
+            self.direction = "left"
+            self.animation_count = 0
+    
+    def move_right(self, vel):
+        self.x_vel = vel  
+        if self.direction != "right":
+            self.direction = "right"
+            self.animation_count = 0
+            
+    def loop(self, fps):
+        self.y_vel += (1 + (self.fall_vel/fps) * self.GRAVITY)
+        self.move(self.x_vel, self.y_vel)
+        
+    def landed(self):
+        self.fall_count = 0
+        self.y_vel = 0
+        self.jump_count = 0
+        
+    def hit_head(self):
+        self.count = 0
+        self.y_vel *= -1
+        
+    def update_sprite(self):
+        sprite_sheet = "Idle"
+        if self.x_vel != 0:
+            sprite_sheet = "Run"
+    
+        sprite_sheet_name = sprite_sheet + "_" + self.direction
+        sprites = self.SPRITES[sprite_sheet_name]
+        sprite_index = (self.animation_count // self.ANIMATION_DELAY) % len(sprites)
+        self.sprite = sprites[sprite_index]
+        self.animation_count += 1
+        
+    def update(self):
+        self.rect = self.sprite.get_rect(topleft = (self.rect.x, self.rect.y))
+        self.mask = pygame.mask.from_surface(self.sprite)
+        
+    def draw(self, win):
+        
+        if self.SPRITES is None:
+            print("Can't load sprite sheets")
+            return
+        
+        if self.direction is None:
+            self.direction = "right"
+            
+        self.sprite = self.SPRITES["Idle_" + self.direction][0]
+        win.blit(self.sprite, (self.rect.x, self.rect.y))
+        
+class Object(pygame.sprite.Sprite):
+    def __init__(self, x, y, width, height, name=None):
+        super().__init__()
+        self.rect = pygame.Rect(x, y, width, height)
+        self.image = pygame.Surface((width, height), pygame.SRCALPHA)
+        self.width = width
+        self.height = height
+        self.name = name
+        
+        
+        
+    def draw(self, win):
+        win.blit(self.image, (self.rect.x, self.rect.y))
+        
+class Block(Object):
+    def __init__(self, x, y, size):
+        super().__init__(x, y, size, size)
+        block = get_block(size)
+        self.image.blit(block, (0, 0))
+        self.mask = pygame.mask.from_surface(self.image)
 
-class Food:
+        
 
-    def __init__(self):
-        x = random.randint(0, int(GAME_WIDTH / SPACE_SIZE) - 1) * SPACE_SIZE
-        y = random.randint(0, int(GAME_HEIGHT / SPACE_SIZE) - 1) * SPACE_SIZE
+def get_background(name):
+    image = pygame.image.load(join("Asset", "Background", name))
+    _, _, width, height = image.get_rect()
+    
+    tiles = []
+    
+    for i in range(WIDTH // width + 1):
+        for j in range(HEIGHT // height + 1):
+            pos = [i*width, j*height]
+            tiles.append(pos)
+            
+    return tiles, image
 
-        self.coordinates = [x, y]
+def draw(window, background, bg_image, player, blocks):
+    for tile in background:
+        window.blit(bg_image, tile)
+        
+    for block in blocks:
+        block.draw(window)
+        
+    player.draw(window)
+        
+    pygame.display.update()
 
-        canvas.create_oval(x, y, x + SPACE_SIZE, y + SPACE_SIZE, fill=FOOD_COLOR, tag="food")
+def handle_vertical_collision(player, objects, dy):
+    collided_objects = []
+    for obj in objects:
+        if pygame.sprite.collide_mask(player, obj):
+            if dy > 0:
+                player.rect.bottom = obj.rect.top
+                player.landed()
+            elif dy < 0:
+                player.rect.top = obj.rect.bottom
+                player.hit_head()
+                
+        collided_objects.append(obj)
+        
+    return collided_objects
+                    
+            
 
+def handle_move(player, objects):
+    keys = pygame.key.get_pressed()
+    
+    player.x_vel = 0
+    
+    if keys[pygame.K_LEFT]:
+        player.move_left(PLAYER_VEL)
+    if keys[pygame.K_RIGHT]:
+        player.move_right(PLAYER_VEL)
+        
+    
+    player.update_sprite()
+    player.update()    
+    handle_vertical_collision(player, objects, player.y_vel)
+    
+def main(window):
+    clock = pygame.time.Clock()
+    background, bg_image = get_background("Pink.png")
+    
+    block_size = 48
+    player = Player(100, 100, 50, 50)
+    floor = [Block(i * block_size, HEIGHT - block_size, block_size) for i in range(-WIDTH // block_size, WIDTH * 2 // block_size)]
+    
+    run = True
+    while run:
+        clock.tick(FPS)
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                run = False
+                break
+        player.update_sprite()
+        player.update()
+        player.loop(FPS)
+        
+        draw(window, background, bg_image, player, floor)
+        
+        handle_move(player, floor)
+    pygame.quit()
+    quit()
 
-def next_turn(snake, food):
-
-    x, y = snake.coordinates[0]
-
-    if direction == "up":
-        y -= SPACE_SIZE
-    elif direction == "down":
-        y += SPACE_SIZE
-    elif direction == "left":
-        x -= SPACE_SIZE
-    elif direction == "right":
-        x += SPACE_SIZE
-
-    snake.coordinates.insert(0, (x, y))
-
-    square = canvas.create_rectangle(x, y, x + SPACE_SIZE, y + SPACE_SIZE, fill=SNAKE_COLOR)
-
-    snake.squares.insert(0, square)
-
-    if x == food.coordinates[0] and y == food.coordinates[1]:
-
-        global score
-
-        score += 1
-
-        label.config(text="Score:{}".format(score))
-
-        canvas.delete("food")
-
-        food = Food()
-
-    else:
-
-        del snake.coordinates[-1]
-
-        canvas.delete(snake.squares[-1])
-
-        del snake.squares[-1]
-
-    if check_collisions(snake):
-        game_over()
-
-    else:
-        window.after(SPEED, next_turn, snake, food)
-
-
-def change_direction(new_direction):
-
-    global direction
-
-    if new_direction == 'left':
-        if direction != 'right':
-            direction = new_direction
-    elif new_direction == 'right':
-        if direction != 'left':
-            direction = new_direction
-    elif new_direction == 'up':
-        if direction != 'down':
-            direction = new_direction
-    elif new_direction == 'down':
-        if direction != 'up':
-            direction = new_direction
-
-
-def check_collisions(snake):
-
-    x, y = snake.coordinates[0]
-
-    if x < 0 or x >= GAME_WIDTH:
-        return True
-    elif y < 0 or y >= GAME_HEIGHT:
-        return True
-
-    for body_part in snake.coordinates[1:]:
-        if x == body_part[0] and y == body_part[1]:
-            return True
-
-    return False
-
-
-def game_over():
-
-    canvas.delete(ALL)
-    canvas.create_text(canvas.winfo_width()/2, canvas.winfo_height()/2,
-                       font=('consolas',70), text="GAME OVER", fill="red", tag="gameover")
-
-
-window = Tk()
-window.title("Snake game")
-window.resizable(False, False)
-
-score = 0
-direction = 'down'
-
-label = Label(window, text="Score:{}".format(score), font=('consolas', 40))
-label.pack()
-
-canvas = Canvas(window, bg=BACKGROUND_COLOR, height=GAME_HEIGHT, width=GAME_WIDTH)
-canvas.pack()
-
-window.update()
-
-window_width = window.winfo_width()
-window_height = window.winfo_height()
-screen_width = window.winfo_screenwidth()
-screen_height = window.winfo_screenheight()
-
-x = int((screen_width/2) - (window_width/2))
-y = int((screen_height/2) - (window_height/2))
-
-window.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-window.bind('<Left>', lambda event: change_direction('left'))
-window.bind('<Right>', lambda event: change_direction('right'))
-window.bind('<Up>', lambda event: change_direction('up'))
-window.bind('<Down>', lambda event: change_direction('down'))
-
-snake = Snake()
-food = Food()
-
-next_turn(snake, food)
-
-window.mainloop()
+if __name__ == "__main__":
+    main(window)

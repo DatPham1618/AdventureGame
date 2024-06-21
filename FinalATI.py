@@ -1,234 +1,190 @@
+import pygame, sys, random
 import os
-import random
-import math
-import pygame
-from os import listdir
-from os.path import isfile, join
+from os.path import join
+
+pygame.mixer.pre_init(frequency = 44100, size = - 16, channels = 2, buffer = 512)
 pygame.init()
+pygame.display.set_caption("Flappy Bird")
+icon = pygame.image.load("FileGame/assets/icon.png")
+pygame.display.set_icon(icon)
 
-pygame.display.set_caption("Adventure Game")
+def draw_floor():
+    screen.blit(floor, (floor_x_pos, 650))
+    screen.blit(floor, (floor_x_pos + 432, 650))
 
-BG_COLOR = (255, 255, 255)
-WIDTH, HEIGHT = 1000, 800
-FPS = 60
-PLAYER_VEL = 5
+def create_pipe():
+    random_pipe_pos = random.choice(pipe_height)
+    bottom_pipe = pipe_surface.get_rect(midtop = (500, random_pipe_pos))
+    top_pipe_height = random.randint(700, 750)
+    top_pipe = pipe_surface.get_rect(midtop = (500, random_pipe_pos - top_pipe_height))
+    return bottom_pipe, top_pipe    
 
-window = pygame.display.set_mode((WIDTH, HEIGHT))
+def move_pipe(pipes):
+    for pipe in pipes:
+        pipe.centerx -= 3
+    return pipes
 
-def flip(sprites):
-    return [pygame.transform.flip(sprite, True, False) for sprite in sprites]
-
-def load_sprite_sheets(dir1, dir2, width, height, direction = False):
-    path = join("Asset", dir1 , dir2)
-    images = [f for f in listdir(path) if isfile(join(path, f))]
-    
-    all_sprites = {}
-    
-    for image in images:
-        sprite_sheet = pygame.image.load(join(path, image)).convert_alpha()
-
-        sprites = []
-        
-        for i in range(sprite_sheet.get_width() // width):
-            surface = pygame.Surface((width, height), pygame.SRCALPHA, 32)
-            rect = pygame.Rect(i * width, 0, width, height)
-            surface.blit(sprite_sheet, (0, 0), rect)
-            sprites.append(pygame.transform.scale2x(surface))
-            
-        if direction:
-            all_sprites[image.replace(".png", "") + "_right"] = sprites
-            all_sprites[image.replace(".png", "") + "_left"] = flip(sprites)
+def draw_pipe(pipes):
+    for pipe in pipes:
+        if pipe.bottom >= 600:
+            screen.blit(pipe_surface, pipe)
         else:
-            all_sprites[image.replace(".png", "")] = sprites
-    
-    return all_sprites
+            flip_pipe = pygame.transform.flip(pipe_surface, False, True)
+            screen.blit(flip_pipe, pipe)
 
-def get_block(size):
-    path = join("Asset", "Terrain", "Terrain.png")
-    image = pygame.image.load(path).convert_alpha()
-    surface = pygame.Surface((size, size), pygame.SRCALPHA, 32)
-    rect = pygame.Rect(96, 64, size, size)
-    surface.blit(image, (0, 0), rect)
-    return pygame.transform.scale(surface, (size, size))     
-                
-class Player(pygame.sprite.Sprite):
-    COLOR = (255, 0, 0)
-    GRAVITY = 1
-    SPRITES = load_sprite_sheets("MainCharacters", "PinkMan", 32, 32, True)
-    ANIMATION_DELAY = 3
+def check_collision(pipes):
+    for pipe in pipes:
+        if bird_rect.colliderect(pipe):
+            hit_sound.play()
+            die_sound.play()
+            return False
+    if bird_rect.top <= -75 or bird_rect.bottom >= 650:
+        hit_sound.play()
+        die_sound.play()
+        return False
+    return True
+
+def rotate_bird(bird1):
+    new_bird = pygame.transform.rotozoom(bird1, -bird_movement * 2, 1)
+    return new_bird
+
+def bird_animation():
+    new_bird = bird_list[bird_index]
+    new_bird_rect = new_bird.get_rect(center = (100, bird_rect.centery))
+    return new_bird, new_bird_rect 
+
+def score_display(game_state):
+    if game_state == 'main_game':
+        score_surface = game_font.render(str(int(score)), True, (255, 255, 255))
+        score_rect = score_surface.get_rect(center = (216, 100))
+        screen.blit(score_surface, score_rect)
     
-    def __init__(self, x, y, width, height):
-        super().__init__()
-        self.rect = pygame.Rect(x, y, width, height)
-        self.x_vel = 0
-        self.y_vel = 0
-        self.mask = None
-        self.direction = "right"
-        self.animation_count = 0
-        self.fall_vel = 0
+    if game_state == 'game_over':
+        score_surface = game_font.render(f'Score: {str(int(score))}', True, (255, 255, 255))
+        score_rect = score_surface.get_rect(center = (216, 100))
+        screen.blit(score_surface, score_rect)
         
-    def move(self, dx, dy):
-        self.rect.x += dx
-        self.rect.y += dy
-    
-    def move_left(self, vel):
-        self.x_vel = -vel
-        if self.direction != "left":
-            self.direction = "left"
-            self.animation_count = 0
-    
-    def move_right(self, vel):
-        self.x_vel = vel  
-        if self.direction != "right":
-            self.direction = "right"
-            self.animation_count = 0
+        high_score_surface = game_font.render(f'High Score: {str(int(high_score))}', True, (255, 255, 255))
+        high_score_rect = high_score_surface.get_rect(center = (216, 630))
+        screen.blit(high_score_surface, high_score_rect)
+        
+flap_sound = pygame.mixer.Sound(join("FileGame", "sound", "sfx_wing.wav"))
+hit_sound = pygame.mixer.Sound(join("FileGame", "sound", "sfx_hit.wav"))
+point_sound = pygame.mixer.Sound(join("FileGame", "sound", "sfx_point.wav"))
+die_sound = pygame.mixer.Sound(join("FileGame", "sound", "sfx_die.wav"))
+score_sound_countdown = 100
+
+def update_high_score(score, high_score):
+    if score > high_score:
+        high_score = score
+    return high_score
+
+def update_score(pipes, bird_rect):
+    global score
+    for pipe in pipes:
+        if bird_rect.centerx > pipe.centerx and bird_rect.centerx <= pipe.centerx + 3:
+            point_sound.play()
+            score += 1/2
             
-    def loop(self, fps):
-        self.y_vel += (1 + (self.fall_vel/fps) * self.GRAVITY)
-        self.move(self.x_vel, self.y_vel)
-        
-    def landed(self):
-        self.fall_count = 0
-        self.y_vel = 0
-        self.jump_count = 0
-        
-    def hit_head(self):
-        self.count = 0
-        self.y_vel *= -1
-        
-    def update_sprite(self):
-        sprite_sheet = "Idle"
-        if self.x_vel != 0:
-            sprite_sheet = "Run"
-    
-        sprite_sheet_name = sprite_sheet + "_" + self.direction
-        sprites = self.SPRITES[sprite_sheet_name]
-        sprite_index = (self.animation_count // self.ANIMATION_DELAY) % len(sprites)
-        self.sprite = sprites[sprite_index]
-        self.animation_count += 1
-        
-    def update(self):
-        self.rect = self.sprite.get_rect(topleft = (self.rect.x, self.rect.y))
-        self.mask = pygame.mask.from_surface(self.sprite)
-        
-    def draw(self, win):
-        
-        if self.SPRITES is None:
-            print("Can't load sprite sheets")
-            return
-        
-        if self.direction is None:
-            self.direction = "right"
+
+
+
+
+game_font = pygame.font.Font('FileGame/04B_19.TTF', 40)
+high_score = 0
+screen = pygame.display.set_mode((432, 768))
+clock = pygame.time.Clock()
+score = 0 
+gravity = 0.25
+bird_movement = 0
+game_active = True
+
+#Create Background
+background = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "background-night.png" )).convert())
+#Create Floor
+floor = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "floor.png" )).convert())
+floor_x_pos = 0
+
+#Create Bird
+bird_up = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "yellowbird-upflap.png" )).convert_alpha())
+bird_mid = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "yellowbird-midflap.png" )).convert_alpha())
+bird_down= pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "yellowbird-downflap.png" )).convert_alpha())
+# bird_up = pygame.transform.scale(pygame.image.load(join("FileGame", "assets", "quy.jpg")).convert_alpha(), (64, 64))
+# bird_mid = pygame.transform.scale(pygame.image.load(join("FileGame", "assets", "quy.jpg")).convert_alpha(), (64, 64))
+# bird_down = pygame.transform.scale(pygame.image.load(join("FileGame", "assets", "quy.jpg")).convert_alpha(), (64, 64))
+bird_list = [bird_down, bird_mid, bird_up]
+bird_index = 0
+bird = bird_list[bird_index]
+bird_rect = bird.get_rect(center = (100, 384))
+
+bird_flap = pygame.USEREVENT + 1
+pygame.time.set_timer(bird_flap, 200)
+
+game_over_surface = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "gameover.png" )).convert_alpha())
+game_over_rect = game_over_surface.get_rect(center = (216, 384))
+#Create Pipe
+pipe_surface = pygame.transform.scale2x(pygame.image.load(join("FileGame", "assets", "pipe-green.png" )).convert())
+pipe_list = []
+pipe_height = [200, 300, 400]
+
+
+#Timer
+spawn_pipe = pygame.USEREVENT
+pygame.time.set_timer(spawn_pipe, 1200)
+
+run = True
+while True:
+    for event in pygame.event.get():
             
-        self.sprite = self.SPRITES["Idle_" + self.direction][0]
-        win.blit(self.sprite, (self.rect.x, self.rect.y))
-        
-class Object(pygame.sprite.Sprite):
-    def __init__(self, x, y, width, height, name=None):
-        super().__init__()
-        self.rect = pygame.Rect(x, y, width, height)
-        self.image = pygame.Surface((width, height), pygame.SRCALPHA)
-        self.width = width
-        self.height = height
-        self.name = name
-        
-        
-        
-    def draw(self, win):
-        win.blit(self.image, (self.rect.x, self.rect.y))
-        
-class Block(Object):
-    def __init__(self, x, y, size):
-        super().__init__(x, y, size, size)
-        block = get_block(size)
-        self.image.blit(block, (0, 0))
-        self.mask = pygame.mask.from_surface(self.image)
-
-        
-
-def get_background(name):
-    image = pygame.image.load(join("Asset", "Background", name))
-    _, _, width, height = image.get_rect()
+        if event.type == pygame.QUIT:
+            pygame.quit()
+            sys.exit()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE and game_active:
+                bird_movement = 0
+                bird_movement = - 8
+                flap_sound.play()
+            if event.key == pygame.K_SPACE and game_active == False:
+                game_active = True
+                pipe_list.clear()
+                bird_rect.center = (100, 384)
+                bird_movement = 0 
+                score = 0
+        if event.type == spawn_pipe:
+            pipe_list.extend(create_pipe())
+        if event.type == bird_flap:
+            if bird_index <  2:
+                bird_index += 1
+            else:
+                bird_index = 0
+        bird, bird_rect = bird_animation() 
     
-    tiles = []
+    screen.blit(background, (0, 0))
+        
+    if game_active:
+        
+        
+        rotated_bird = rotate_bird(bird)
+        bird_movement += gravity
+        bird_rect.centery += bird_movement
+        screen.blit(rotated_bird, bird_rect)
+        game_active = check_collision(pipe_list)
+        
+        pipe_list = move_pipe(pipe_list)
+        draw_pipe(pipe_list)
+        update_score(pipe_list, bird_rect)
+        score_display('main_game')
+        
+        draw_floor()
+        if floor_x_pos <= -432:
+            floor_x_pos = 0
+        floor_x_pos -= 1
+    else:
+        
+        screen.blit(game_over_surface, game_over_rect)
+        high_score = update_high_score(score, high_score)
+        score_display('game_over')
     
-    for i in range(WIDTH // width + 1):
-        for j in range(HEIGHT // height + 1):
-            pos = [i*width, j*height]
-            tiles.append(pos)
-            
-    return tiles, image
-
-def draw(window, background, bg_image, player, blocks):
-    for tile in background:
-        window.blit(bg_image, tile)
-        
-    for block in blocks:
-        block.draw(window)
-        
-    player.draw(window)
-        
+    
     pygame.display.update()
-
-def handle_vertical_collision(player, objects, dy):
-    collided_objects = []
-    for obj in objects:
-        if pygame.sprite.collide_mask(player, obj):
-            if dy > 0:
-                player.rect.bottom = obj.rect.top
-                player.landed()
-            elif dy < 0:
-                player.rect.top = obj.rect.bottom
-                player.hit_head()
-                
-        collided_objects.append(obj)
-        
-    return collided_objects
-                    
-            
-
-def handle_move(player, objects):
-    keys = pygame.key.get_pressed()
-    
-    player.x_vel = 0
-    
-    if keys[pygame.K_LEFT]:
-        player.move_left(PLAYER_VEL)
-    if keys[pygame.K_RIGHT]:
-        player.move_right(PLAYER_VEL)
-        
-    
-    player.update_sprite()
-    player.update()    
-    handle_vertical_collision(player, objects, player.y_vel)
-    
-def main(window):
-    clock = pygame.time.Clock()
-    background, bg_image = get_background("Pink.png")
-    
-    block_size = 48
-    player = Player(100, 100, 50, 50)
-    floor = [Block(i * block_size, HEIGHT - block_size, block_size) for i in range(-WIDTH // block_size, WIDTH * 2 // block_size)]
-    
-    run = True
-    while run:
-        clock.tick(FPS)
-        
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                run = False
-                break
-        player.update_sprite()
-        player.update()
-        player.loop(FPS)
-        
-        draw(window, background, bg_image, player, floor)
-        
-        handle_move(player, floor)
-    pygame.quit()
-    quit()
-
-if __name__ == "__main__":
-    main(window)
-
-
+    clock.tick(120)

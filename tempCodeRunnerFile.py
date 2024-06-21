@@ -1,1 +1,1 @@
-self.sprite = self.SPRITES["Idle_" + self.direction][0]
+score
