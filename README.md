@@ -21,8 +21,11 @@ To run the game, ensure you have Python installed, and then install pygame libra
 pip install pygame
 
 ## How to Play
-- Press the SPACE BAR to make the bird flap.
-- Try to dodge pipes
+- Start the game and select your bird color from the main menu.
+- Press SPACE BAR to make the bird flap and gain altitude.
+- Navigate the bird through gaps between pipes.
+- Each successfully passed pipe pair earns one point.
+- The game ends if the bird collides with pipes, the ground, or flies off-screen.
 ## Features
 
 - Classic Flappy Bird gameplay
