@@ -269,7 +269,7 @@ while True:
             sys.exit()
         #Handle spacebar for flapping and restart game
         if event.type == pygame.KEYDOWN:
-            if menu_state:
+            if event.key == pygame.K_SPACE and menu_state:
                 current_bird_color = yellow_bird
                 menu_state = False
                 high_score_menu = False
